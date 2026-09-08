@@ -1,51 +1,63 @@
 package hub
 
-import "net"
+import (
+	"fmt"
+	"net"
+	"sync"
+)
 
 // User.
 type Client struct {
-	ID string
-	Nick string
-	Conn net.Conn
-	Send chan []byte
-	Rooms map[string]bool
+	ID     string
+	nickMu sync.RWMutex
+	nick   string
+	Conn   net.Conn
+	Send   chan []byte
+	Rooms  map[string]bool
 }
 
 // Room channel
 type Room struct {
-	Name string
+	Name    string
 	Clients map[*Client]bool
 }
 
 // Data needed to join a room
 type joinRequest struct {
 	client *Client
-	room string
+	room   string
 }
 
 // Data needed to leave a room
 type partRequest struct {
 	client *Client
-	room string
+	room   string
+}
+
+// Data needed to change a client's nickname.
+type nickRequest struct {
+	client *Client
+	nick   string
 }
 
 // user chat message
 type broadcastMessage struct {
 	sender *Client
-	room string
-	payload []byte
+	room   string
+	text   string
 }
 
 // main dispatcher manages state
 type Hub struct {
 	clients map[*Client]bool
-	rooms map[string]*Room 
+	rooms   map[string]*Room
 
-	register chan *Client
+	register   chan *Client
 	unregister chan *Client
-	join chan joinRequest
-	part chan partRequest
-	broadcast chan broadcastMessage
+	join       chan joinRequest
+	part       chan partRequest
+	nick       chan nickRequest
+	broadcast  chan broadcastMessage
 }
 
 // initialize hub
@@ -57,8 +69,21 @@ func NewHub() *Hub {
 		unregister: make(chan *Client),
 		join:       make(chan joinRequest),
 		part:       make(chan partRequest),
+		nick:       make(chan nickRequest),
 		broadcast:  make(chan broadcastMessage),
 	}
+}
+
+func (c *Client) Nick() string {
+	c.nickMu.RLock()
+	defer c.nickMu.RUnlock()
+	return c.nick
+}
+
+func (c *Client) SetNick(nick string) {
+	c.nickMu.Lock()
+	defer c.nickMu.Unlock()
+	c.nick = nick
 }
 
 // run hub in a single threaded event loop
@@ -68,11 +93,11 @@ func (h *Hub) Run() {
 		// Add new user
 		case c := <-h.register:
 			h.clients[c] = true
-		
+
 		// remove user
-		case c:= <-h.unregister:
+		case c := <-h.unregister:
 			h.removeClient(c)
-		
+
 		// attempt to add user to new room
 		case req := <-h.join:
 			room, ok := h.rooms[req.room]
@@ -85,21 +110,27 @@ func (h *Hub) Run() {
 
 		// attempt to remove user from a room
 		case req := <-h.part:
-			if room, ok := h.rooms[req.room]; ok{
+			if room, ok := h.rooms[req.room]; ok {
 				delete(room.Clients, req.client)
 			}
 			delete(req.client.Rooms, req.room)
+
+		// Keep nickname changes in the hub event loop so Nick has a
+		// single owner and cannot race with message formatting.
+		case req := <-h.nick:
+			req.client.SetNick(req.nick)
 
 		// attempt to send message from a user
 		// to all other users in that room
 		case msg := <-h.broadcast:
 			if room, ok := h.rooms[msg.room]; ok {
+				payload := fmt.Appendf(nil, "[%s] %s %s\n", msg.room, msg.sender.Nick(), msg.text)
 				for c := range room.Clients {
 					if c == msg.sender {
 						continue
 					}
 					select {
-					case c.Send <- msg.payload:
+					case c.Send <- payload:
 					default:
 						h.disconnectSlowClient(c)
 					}
