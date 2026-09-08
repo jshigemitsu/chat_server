@@ -5,7 +5,7 @@ import (
 	"log"
 	"net"
 	"strings"
-	"uuid"
+	"github.com/google/uuid"
 )
 
 // establish buffer size for disconnection
