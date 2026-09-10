@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"fmt"
 	"github.com/google/uuid"
 )
 
@@ -71,34 +72,43 @@ func handleCommand(c *Client, h *Hub, line string) {
 	switch cmd {
 	case "NICK":
 		if len(parts) < 2 {
+			sendLine(c, "ERR NICK: recieved %q)", line)
 			return
 		}
 		nick := strings.TrimSpace(parts[1])
 		if nick == "" {
+			sendLine(c, "ERR NICK: recieved %q)", line)
 			return
 		}
 		h.nick <- nickRequest{client: c, nick: nick}
+		sendLine(c, "nick set to %s", nick)
 
 	case "JOIN":
 		if len(parts) < 2 {
+			sendLine(c, "ERR JOIN: recieved %q)", line)
 			return
 		}
 		room := strings.TrimSpace(parts[1])
 		h.join <- joinRequest{client: c, room: room}
+		sendLine(c, "Joined Room:  %s", room)
 
 	case "PART":
 		if len(parts) < 2 {
+			sendLine(c, "ERR PART: recieved %q)", line)
 			return
 		}
 		room := strings.TrimSpace(parts[1])
 		h.part <- partRequest{client: c, room: room}
+		sendLine(c, "Left Room: %s", room)
 
 	case "MSG":
 		if len(parts) < 2 {
+			sendLine(c, "ERR MSG: recieved %q)", line)
 			return
 		}
 		msgParts := strings.SplitN(parts[1], " ", 2)
 		if len(msgParts) < 2 {
+			sendLine(c, "ERR MSG: recieved %q)", line)
 			return
 		}
 		room := msgParts[0]
@@ -106,6 +116,14 @@ func handleCommand(c *Client, h *Hub, line string) {
 		h.broadcast <- broadcastMessage{sender: c, room: room, text: text}
 
 	default:
+		sendLine(c, "ERR unknown command: %s", cmd)
 	}
+}
 
+func sendLine(c *Client, format string, args ...any) {
+	line := fmt.Appendf(nil, format+"\n", args...)
+	select {
+	case c.Send <- line:
+	default:
+	}
 }

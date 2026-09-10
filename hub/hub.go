@@ -124,7 +124,7 @@ func (h *Hub) Run() {
 		// to all other users in that room
 		case msg := <-h.broadcast:
 			if room, ok := h.rooms[msg.room]; ok {
-				payload := fmt.Appendf(nil, "[%s] %s %s\n", msg.room, msg.sender.Nick(), msg.text)
+				payload := fmt.Appendf(nil, "[%s] %s: %s\n", msg.room, msg.sender.Nick(), msg.text)
 				for c := range room.Clients {
 					if c == msg.sender {
 						continue
