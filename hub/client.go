@@ -7,6 +7,7 @@ import (
 	"strings"
 	"fmt"
 	"github.com/google/uuid"
+	"errors"
 )
 
 // establish buffer size for disconnection
@@ -60,7 +61,11 @@ func readLoop(c *Client, h *Hub) {
 		handleCommand(c, h, line)
 	}
 	if err := scanner.Err(); err != nil {
-		log.Printf("Client %s: read error : %v", c.ID, err)
+		if errors.Is(err, net.ErrClosed) {
+			log.Printf("client %s: connection closed", c.ID)
+		} else {
+			log.Printf("client %s: read error: %v", c.ID, err)
+		}
 	}
 }
 

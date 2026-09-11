@@ -58,6 +58,10 @@ type Hub struct {
 	part       chan partRequest
 	nick       chan nickRequest
 	broadcast  chan broadcastMessage
+
+	shutdown     chan struct{}
+	shutdownDone chan struct{}
+	shuttingDown bool
 }
 
 // initialize hub
@@ -71,7 +75,14 @@ func NewHub() *Hub {
 		part:       make(chan partRequest),
 		nick:       make(chan nickRequest),
 		broadcast:  make(chan broadcastMessage),
+		shutdown:   make(chan struct{}),
+		shutdownDone:   make(chan struct{}),
 	}
+}
+
+func (h *Hub) Shutdown() {
+	h.shutdown <- struct{}{}
+	<- h.shutdownDone
 }
 
 func (c *Client) Nick() string {
@@ -97,6 +108,20 @@ func (h *Hub) Run() {
 		// remove user
 		case c := <-h.unregister:
 			h.removeClient(c)
+			if h.shuttingDown && len(h.clients) == 0{
+				close(h.shutdownDone)
+				return
+			}
+
+		case <-h.shutdown:
+			h.shuttingDown = true
+			if len(h.clients) == 0 {
+				close(h.shutdownDone)
+				return 
+			}
+			for c := range h.clients {
+				c.Conn.Close()
+			} 
 
 		// attempt to add user to new room
 		case req := <-h.join:
